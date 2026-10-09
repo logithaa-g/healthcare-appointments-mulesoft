@@ -1,0 +1,108 @@
+#%RAML 1.0
+title: Healthcare Appointments API
+version: v1
+mediaType: application/json
+
+types:
+  BookingRequest:
+    type: object
+    properties:
+      patientId: string
+      clinicId: string
+      slotId: string
+      reasonForVisit: string
+      contactEmail: string
+      contactMobile: string
+      reminderOffsetHours: integer
+
+/slots:
+  get:
+    description: Retrieve live available slots
+    queryParameters:
+      clinicId: string
+      date: string
+      specialty?: string
+    responses:
+      200:
+        body:
+          application/json:
+            example: |
+              {
+                "clinicId": "CLN-CHN-02",
+                "clinicName": "NPN Clinic Adyar",
+                "timeZone": "Asia/Kolkata",
+                "date": "2026-10-10",
+                "slots": [
+                  {
+                    "slotId": "SLT-20261010-CLN02-DR114-1000",
+                    "practitionerId": "DR-114",
+                    "practitionerName": "Dr S Ramanathan",
+                    "specialty": "GENERAL_MEDICINE",
+                    "startLocal": "2026-10-10T10:00:00+05:30",
+                    "endLocal": "2026-10-10T10:15:00+05:30",
+                    "status": "OPEN"
+                  }
+                ]
+              }
+
+/appointments:
+  post:
+    description: Book an appointment
+    headers:
+      X-Request-Id: string
+    body:
+      application/json:
+        type: BookingRequest
+    responses:
+      201:
+        body:
+          application/json:
+            example: |
+              {
+                "appointmentId": "APT-2026-0118742",
+                "status": "BOOKED",
+                "clinicId": "CLN-CHN-02",
+                "clinicName": "NPN Clinic Adyar",
+                "practitionerName": "Dr S Ramanathan",
+                "startLocal": "2026-10-10T10:00:00+05:30",
+                "timeZone": "Asia/Kolkata",
+                "bookedAt": "2026-10-09T07:30:00+05:30",
+                "reminderScheduledFor": "2026-10-09T10:00:00+05:30",
+                "confirmationEmailQueued": true
+              }
+      409:
+        body:
+          application/json:
+            example: |
+              {
+                "errorCode": "SLOT_ALREADY_BOOKED",
+                "message": "That slot was taken a moment ago.",
+                "slotId": "SLT-20261010-CLN02-DR114-1000",
+                "alternatives": [
+                  {
+                    "slotId": "SLT-20261010-CLN02-DR114-1015",
+                    "startLocal": "2026-10-10T10:15:00+05:30"
+                  }
+                ]
+              }
+      422:
+        body:
+          application/json:
+            example: |
+              {
+                "errorCode": "SLOT_IN_PAST",
+                "message": "Slot start time has passed."
+              }
+
+  /{appointmentId}:
+    delete:
+      description: Cancel an appointment
+      responses:
+        200:
+          body:
+            application/json:
+              example: |
+                {
+                  "message": "Appointment cancelled successfully",
+                  "appointmentId": "APT-2026-0118742"
+                }
