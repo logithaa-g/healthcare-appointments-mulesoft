@@ -5,7 +5,7 @@ http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/cu
         <http:listener-connection host="0.0.0.0" port="8081" />
     </http:listener-config>
     <apikit:config name="api-config" api="api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
-    <flow name="api-main">
+	<flow name="api-main">
         <http:listener config-ref="api-httpListenerConfig" path="/api/*">
             <http:response statusCode="#[vars.httpStatus default 200]">
                 <http:headers>#[vars.outboundHeaders default {}]</http:headers>
@@ -171,25 +171,134 @@ payload]]></ee:set-payload>
             </ee:message>
         </ee:transform>
     </flow>
-    <flow name="post:\appointments:application\json:api-config">
-        <ee:transform doc:name="Transform Message">
+	<flow name="post:\appointments:application\json:api-config">
+        <set-variable value="#[payload]" doc:name="Set Variable" doc:id="0709bf32-702b-4696-929d-0fddc19c58d1" variableName="bookingRequest"/>
+		<db:select doc:name="Select" doc:id="106b6c2e-55f8-40f3-a6ea-b57e0b032a31" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT
+    slot_id,
+    clinic_id,
+    practitioner_id,
+    start_utc,
+    end_utc,
+    status
+FROM slots
+WHERE slot_id = :slotId
+  AND clinic_id = :clinicId;]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+  slotId: payload.slotId,
+  clinicId: payload.clinicId
+}]]]></db:input-parameters>
+		</db:select>
+		<logger level="INFO" doc:name="Logger" doc:id="331ff622-60be-42cb-a284-7a731d4c264a" message="#[payload]"/>
+		<choice doc:name="Choice" doc:id="19556a68-f1e7-42b4-bef1-d77b6004a81d" >
+			<when expression="#[!isEmpty(payload) and payload[0].start_utc &lt; now()]">
+				<set-variable value="422" doc:name="Set Variable" doc:id="7db9423d-8eb2-4fcf-b5a7-7d55ece60db0" variableName="httpStatus"/>
+				<ee:transform doc:name="Transform Message" doc:id="32c13572-a41b-452a-b915-c19197707003" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+  errorCode: "SLOT_IN_PAST",
+  message: "Slot start time has passed."
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise >
+				<choice doc:name="Choice" doc:id="1bf3e5a2-b52a-4e24-b100-b225b6a9c1ab">
+			<when expression='#[!isEmpty(payload) and payload[0].status == "OPEN"]'>
+				<set-variable value='#["APT-" ++ (now() as String {format: "yyyyMMddHHmmss"})]' doc:name="Set Variable" doc:id="52151ad6-c100-4622-8858-f6ded4142ead" variableName="appointmentId" />
+				<set-variable value="201" doc:name="Set Variable" doc:id="7bbc4184-7564-49d0-b4b5-27508069cf2e" variableName="httpStatus" />
+				<db:insert doc:name="Insert" doc:id="584b76d8-9913-4141-8556-ae8bde05b119" config-ref="Database_Config">
+					<db:sql><![CDATA[INSERT INTO appointments (
+    appointment_id,
+    patient_id,
+    clinic_id,
+    practitioner_id,
+    slot_id,
+    start_utc,
+    reason_for_visit,
+    status,
+    request_id,
+    correlation_id,
+    booked_at,
+    reminder_due_at,
+    reminder_state
+)
+VALUES (
+    :appointmentId,
+    :patientId,
+    :clinicId,
+    :practitionerId,
+    :slotId,
+    :startUtc,
+    :reasonForVisit,
+    'BOOKED',
+    :requestId,
+    :correlationId,
+    CURRENT_TIMESTAMP,
+    :reminderDueAt,
+    'SCHEDULED'
+);]]></db:sql>
+					<db:input-parameters><![CDATA[#[{
+  appointmentId: vars.appointmentId,
+  patientId: vars.bookingRequest.patientId,
+  clinicId: vars.bookingRequest.clinicId,
+  practitionerId: payload[0].practitioner_id,
+  slotId: vars.bookingRequest.slotId,
+  startUtc: payload[0].start_utc,
+  reasonForVisit: vars.bookingRequest.reasonForVisit,
+  requestId: (attributes.headers.'X-Request-Id' default "REQ-DEFAULT") as String,
+  correlationId: (attributes.headers.'X-Request-Id' default "REQ-DEFAULT") as String,
+  reminderDueAt: (now() + |PT2H|) as LocalDateTime
+}]]]></db:input-parameters>
+				</db:insert>
+				<db:update doc:name="Update" doc:id="aa2b6654-bc6e-4444-91b3-3c4f44a64120" config-ref="Database_Config">
+					<db:sql><![CDATA[UPDATE slots
+SET status = 'BOOKED',
+    appointment_id = :appointmentId,
+    version = version + 1
+WHERE slot_id = :slotId
+  AND clinic_id = :clinicId
+  AND status = 'OPEN';]]></db:sql>
+					<db:input-parameters><![CDATA[#[{
+  appointmentId: vars.appointmentId,
+  slotId: vars.bookingRequest.slotId,
+  clinicId: vars.bookingRequest.clinicId
+}]]]></db:input-parameters>
+				</db:update>
+				<ee:transform doc:name="Transform Message">
             <ee:message>
                 <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
 {
-  appointmentId: "APT-2026-0118742",
-  status: "BOOKED",
-  clinicId: "CLN-CHN-02",
-  clinicName: "NPN Clinic Adyar",
-  practitionerName: "Dr S Ramanathan",
-  startLocal: "2026-10-10T10:00:00+05:30",
-  timeZone: "Asia/Kolkata",
-  bookedAt: "2026-10-09T07:30:00+05:30",
-  reminderScheduledFor: "2026-10-09T10:00:00+05:30",
-  confirmationEmailQueued: true
-} as Object {encoding: "UTF-8", mediaType: "application/json"}]]></ee:set-payload>
+  message: "Booking request received",
+  patientId: vars.bookingRequest.patientId,
+  clinicId: vars.bookingRequest.clinicId,
+  slotId: vars.bookingRequest.slotId,
+  reasonForVisit: vars.bookingRequest.reasonForVisit
+}]]></ee:set-payload>
             </ee:message>
         </ee:transform>
+			</when>
+			<otherwise>
+				<set-variable value="409" doc:name="Set Variable" doc:id="9d3b050d-68dd-49ae-90ae-56982ae0e172" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="8dbd6aa5-78d8-45dd-998e-592b8ee5f4c5">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  errorCode: "SLOT_UNAVAILABLE",
+  message: "The requested slot is not available."
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
+			</otherwise>
+		</choice>
     </flow>
 </mule>
