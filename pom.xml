@@ -29,6 +29,14 @@
 				<artifactId>mule-maven-plugin</artifactId>
 				<version>${mule.maven.plugin.version}</version>
 				<extensions>true</extensions>
+				<configuration>
+					<sharedLibraries>
+						<sharedLibrary>
+							<groupId>com.mysql</groupId>
+							<artifactId>mysql-connector-j</artifactId>
+						</sharedLibrary>
+					</sharedLibraries>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>
@@ -51,6 +59,17 @@
 			<artifactId>mule-apikit-module</artifactId>
 			<version>1.12.2</version>
 			<classifier>mule-plugin</classifier>
+		</dependency>
+		<dependency>
+			<groupId>org.mule.connectors</groupId>
+			<artifactId>mule-db-connector</artifactId>
+			<version>1.16.5</version>
+			<classifier>mule-plugin</classifier>
+		</dependency>
+		<dependency>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<version>9.4.0</version>
 		</dependency>
 	</dependencies>
 

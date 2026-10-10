@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
-	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd"></mule>
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="3e0223eb-924b-4546-87bf-dee7cf14a361" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="Logi@146" database="healthcare_db" />
+	</db:config>
+	<flow name="healthcare-appointments-apiFlow" doc:id="a4a2813e-ca97-4924-902b-a4cd77845c98" >
+		<db:select doc:name="Select" doc:id="d88338af-e141-45a3-b484-5c3e747a7921" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT *
+FROM slots
+ORDER BY start_time;]]></db:sql>
+		</db:select>
+	</flow>
+</mule>

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd ">
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd 
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
     <http:listener-config name="api-httpListenerConfig">
         <http:listener-connection host="0.0.0.0" port="8081" />
     </http:listener-config>
@@ -142,28 +143,31 @@ output application/json
         </ee:transform>
     </flow>
     <flow name="get:\slots:api-config">
-        <ee:transform doc:name="Transform Message">
+        <db:select doc:name="Select" doc:id="49ea6db3-b13d-4a71-9e4f-08bdce6020cd" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT
+    slot_id,
+    clinic_id,
+    practitioner_id,
+    specialty,
+    start_utc,
+    end_utc,
+    status
+FROM slots
+WHERE clinic_id = :clinicId
+  AND DATE(start_utc) = :slotDate
+  AND status = 'OPEN'
+ORDER BY start_utc;]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+  clinicId: attributes.queryParams.clinicId,
+  slotDate: attributes.queryParams.date
+}]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Transform Message">
             <ee:message>
                 <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-{
-  clinicId: "CLN-CHN-02",
-  clinicName: "NPN Clinic Adyar",
-  timeZone: "Asia/Kolkata",
-  date: "2026-10-10",
-  slots: [
-    {
-      slotId: "SLT-20261010-CLN02-DR114-1000",
-      practitionerId: "DR-114",
-      practitionerName: "Dr S Ramanathan",
-      specialty: "GENERAL_MEDICINE",
-      startLocal: "2026-10-10T10:00:00+05:30",
-      endLocal: "2026-10-10T10:15:00+05:30",
-      status: "OPEN"
-    }
-  ]
-} as Object {encoding: "UTF-8", mediaType: "application/json"}]]></ee:set-payload>
+payload]]></ee:set-payload>
             </ee:message>
         </ee:transform>
     </flow>
