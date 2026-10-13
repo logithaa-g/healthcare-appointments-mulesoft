@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
-<mule xmlns:jms="http://www.mulesoft.org/schema/mule/jms"
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:jms="http://www.mulesoft.org/schema/mule/jms"
       xmlns="http://www.mulesoft.org/schema/mule/core"
-      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:doc="http://www.mulesoft.org/schema/documentation"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:schemaLocation="
         http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
-        http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd">
+        http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd
+        http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
 
     <jms:config name="JMS_Config" doc:name="JMS Config">
         <jms:generic-connection specification="JMS_2_0">
@@ -21,9 +22,10 @@
         </jms:generic-connection>
     </jms:config>
 
+    <!-- Booking confirmation consumer -->
     <flow name="notification-consumersFlow">
         <jms:listener
-            doc:name="On New Message"
+            doc:name="Booking Confirmation Message"
             config-ref="JMS_Config"
             destination="appointment.notify.queue"
             ackMode="AUTO"
@@ -32,8 +34,96 @@
 
         <logger
             level="INFO"
-            doc:name="Logger"
-            message="Received notification message from appointment.notify.queue"/>
+            doc:name="Confirmation Received"
+            message="#['Confirmation event received; correlationId=' ++ ((payload.correlationId default 'missing') as String)]"/>
+    </flow>
+
+    <!-- Reminder consumer -->
+    <flow name="appointment-reminder-consumerFlow">
+        <jms:listener
+            doc:name="Reminder Message"
+            config-ref="JMS_Config"
+            destination="appointment.reminder.queue"
+            ackMode="AUTO"
+            inboundContentType="application/json"
+            inboundEncoding="UTF-8"/>
+
+        <set-variable
+            doc:name="Save Reminder Event"
+            variableName="reminderEvent"
+            value="#[payload]"/>
+
+        <logger
+            level="INFO"
+            doc:name="Reminder Received"
+            message="#['Reminder event received; correlationId=' ++ ((vars.reminderEvent.correlationId default 'missing') as String)]"/>
+
+        <db:select
+            doc:name="Revalidate Appointment"
+            config-ref="Database_Config">
+            <db:sql><![CDATA[
+                SELECT appointment_id, status, reminder_state,
+                       reminder_due_at, reminder_sent_at
+                FROM appointments
+                WHERE appointment_id = :appointmentId
+            ]]></db:sql>
+            <db:input-parameters><![CDATA[
+                #[{
+                    appointmentId: vars.reminderEvent.appointmentId as String
+                }]
+            ]]></db:input-parameters>
+        </db:select>
+
+        <choice doc:name="Check Appointment State">
+
+            <when expression="#[isEmpty(payload)]">
+                <logger
+                    level="WARN"
+                    doc:name="Appointment Not Found"
+                    message="Reminder suppressed: appointment was not found."/>
+            </when>
+
+            <when expression="#[upper((payload[0].status default '') as String) != 'BOOKED']">
+                <db:update
+                    doc:name="Suppress Non-Booked Reminder"
+                    config-ref="Database_Config">
+                    <db:sql><![CDATA[
+                        UPDATE appointments
+                        SET reminder_state = 'SUPPRESSED'
+                        WHERE appointment_id = :appointmentId
+                          AND reminder_state <> 'SENT'
+                    ]]></db:sql>
+                    <db:input-parameters><![CDATA[
+                        #[{
+                            appointmentId: vars.reminderEvent.appointmentId as String
+                        }]
+                    ]]></db:input-parameters>
+                </db:update>
+
+                <logger
+                    level="INFO"
+                    doc:name="Reminder Suppressed"
+                    message="Reminder suppressed because appointment is not BOOKED."/>
+            </when>
+
+            <when expression="#[upper((payload[0].reminder_state default '') as String) == 'SENT']">
+                <logger
+                    level="INFO"
+                    doc:name="Duplicate Reminder Suppressed"
+                    message="Duplicate reminder suppressed."/>
+            </when>
+
+            <otherwise>
+                <logger
+                    level="INFO"
+                    doc:name="Reminder Eligible"
+                    message="#['Appointment reminder is eligible for delivery; correlationId=' ++ ((vars.reminderEvent.correlationId default 'missing') as String)]"/>
+
+                <!-- Email owner must connect the agreed email subflow here.
+                     Do not mark SENT until the email send succeeds. -->
+            </otherwise>
+
+        </choice>
     </flow>
 
 </mule>
