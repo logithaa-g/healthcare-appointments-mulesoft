@@ -4,13 +4,15 @@
       xmlns="http://www.mulesoft.org/schema/mule/core"
       xmlns:doc="http://www.mulesoft.org/schema/documentation"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:email="http://www.mulesoft.org/schema/mule/email"
       xsi:schemaLocation="
         http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
         http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd
-        http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+        http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+        http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd">
 
     <jms:config name="JMS_Config" doc:name="JMS Config">
-        <jms:generic-connection specification="JMS_2_0">
+        <jms:generic-connection>
             <jms:connection-factory>
                 <jms:jndi-connection-factory
                     connectionFactoryJndiName="ConnectionFactory">
@@ -23,107 +25,371 @@
     </jms:config>
 
     <!-- Booking confirmation consumer -->
-    <flow name="notification-consumersFlow">
-        <jms:listener
-            doc:name="Booking Confirmation Message"
-            config-ref="JMS_Config"
-            destination="appointment.notify.queue"
-            ackMode="AUTO"
-            inboundContentType="application/json"
-            inboundEncoding="UTF-8"/>
+<flow name="notification-consumersFlow">
 
-        <logger
-            level="INFO"
-            doc:name="Confirmation Received"
-            message="#['Confirmation event received; correlationId=' ++ ((payload.correlationId default 'missing') as String)]"/>
-    </flow>
+    <jms:listener
+        doc:name="Booking and Cancellation Notifications"
+        config-ref="JMS_Config"
+        destination="appointment.notify.queue"
+        ackMode="AUTO"
+        inboundContentType="application/json"
+        inboundEncoding="UTF-8"/>
 
-    <!-- Reminder consumer -->
-    <flow name="appointment-reminder-consumerFlow">
-        <jms:listener
-            doc:name="Reminder Message"
-            config-ref="JMS_Config"
-            destination="appointment.reminder.queue"
-            ackMode="AUTO"
-            inboundContentType="application/json"
-            inboundEncoding="UTF-8"/>
+    <set-variable
+        variableName="bookingEvent"
+        value="#[read(payload, 'application/json')]"
+        doc:name="Parse Notification Event"/>
+
+    <logger
+        level="INFO"
+        doc:name="Notification Event Received"
+        message="#['Notification received: ' ++ (vars.bookingEvent.eventType default vars.bookingEvent.notifyType default 'UNKNOWN') ++ ' for ' ++ (vars.bookingEvent.appointmentId as String)]"/>
+
+    <db:select
+        config-ref="Database_Config"
+        doc:name="Fetch Notification Details">
+
+        <db:sql><![CDATA[
+            SELECT
+                a.appointment_id,
+                a.start_utc,
+                a.status,
+                p.patient_name,
+                p.contact_email,
+                pr.practitioner_name,
+                pr.specialty,
+                c.clinic_name,
+                c.address_line1,
+                c.city,
+                c.time_zone
+            FROM appointments a
+            JOIN patients p
+                ON a.patient_id = p.patient_id
+            JOIN practitioners pr
+                ON a.practitioner_id = pr.practitioner_id
+            JOIN clinics c
+                ON a.clinic_id = c.clinic_id
+            WHERE a.appointment_id = :appointmentId
+        ]]></db:sql>
+
+        <db:input-parameters><![CDATA[
+            #[{
+                appointmentId:
+                    vars.bookingEvent.appointmentId as String
+            }]
+        ]]></db:input-parameters>
+    </db:select>
+
+    <choice doc:name="Route Notification Type">
+
+        <!-- CANCELLATION EMAIL -->
+        <when expression="#[
+            upper((vars.bookingEvent.eventType default '') as String)
+                == 'APPOINTMENT_CANCELLED'
+            or
+            upper((vars.bookingEvent.notifyType default '') as String)
+                == 'CANCELLATION'
+        ]">
+
+            <choice doc:name="Validate Cancellation">
+
+                <when expression="#[
+                    isEmpty(payload)
+                    or upper((payload[0].status default '') as String)
+                        != 'CANCELLED'
+                ]">
+                    <logger
+                        level="WARN"
+                        doc:name="Cancellation Email Skipped"
+                        message="Cancellation email skipped: appointment not found or not CANCELLED."/>
+                </when>
+
+                <otherwise>
+                    <set-variable
+                        variableName="bookingDetails"
+                        value="#[payload[0]]"
+                        doc:name="Save Cancellation Details"/>
+
+                    <set-payload
+                        doc:name="Build Cancellation Email"
+                        value="#[{
+                            emailType: 'CANCELLATION_NOTICE',
+                            appointmentId: vars.bookingDetails.appointment_id,
+                            patientName: vars.bookingDetails.patient_name,
+                            contactEmail: vars.bookingDetails.contact_email,
+                            recipientEmail: vars.bookingDetails.contact_email,
+                            startLocalLong: vars.bookingDetails.start_utc as String,
+                            localDateTime: vars.bookingDetails.start_utc as String,
+                            timeZone: vars.bookingDetails.time_zone,
+                            timeZoneLabel: vars.bookingDetails.time_zone,
+                            practitionerName: vars.bookingDetails.practitioner_name,
+                            specialtyLabel: vars.bookingDetails.specialty,
+                            clinicName: vars.bookingDetails.clinic_name,
+                            clinicAddressLine1: vars.bookingDetails.address_line1,
+                            clinicCity: vars.bookingDetails.city,
+                            cancelledByClinic: false,
+                            bookingUrl: 'Please contact your clinic to book another appointment.'
+                        }]"/>
+
+                    <flow-ref
+                        name="send-appointment-email"
+                        doc:name="Send Cancellation Email"/>
+
+                    <logger
+                        level="INFO"
+                        doc:name="Cancellation Email Processed"
+                        message="#['Cancellation email processed for ' ++ (vars.bookingDetails.appointment_id as String)]"/>
+                </otherwise>
+            </choice>
+        </when>
+
+        <!-- BOOKING CONFIRMATION EMAIL -->
+        <when expression="#[
+    upper((vars.bookingEvent.notifyType default '') as String)
+        == 'CONFIRMATION'
+    or
+    upper((vars.bookingEvent.eventType default '') as String)
+        == 'APPOINTMENT_BOOKED'
+    or
+    upper((vars.bookingEvent.eventType default '') as String)
+        == 'BOOKING_CONFIRMATION'
+]">
+
+            <choice doc:name="Validate Booking">
+
+                <when expression="#[
+                    isEmpty(payload)
+                    or upper((payload[0].status default '') as String)
+                        != 'BOOKED'
+                ]">
+                    <logger
+                        level="WARN"
+                        doc:name="Booking Email Skipped"
+                        message="Booking confirmation skipped: appointment not found or not BOOKED."/>
+                </when>
+
+                <otherwise>
+                    <set-variable
+                        variableName="bookingDetails"
+                        value="#[payload[0]]"
+                        doc:name="Save Booking Details"/>
+
+                    <set-payload
+                        doc:name="Build Confirmation Email"
+                        value="#[{
+                            emailType: 'BOOKING_CONFIRMATION',
+                            appointmentId: vars.bookingDetails.appointment_id,
+                            patientName: vars.bookingDetails.patient_name,
+                            contactEmail: vars.bookingDetails.contact_email,
+                            recipientEmail: vars.bookingDetails.contact_email,
+                            startLocalLong: vars.bookingDetails.start_utc as String,
+                            localDateTime: vars.bookingDetails.start_utc as String,
+                            timeZone: vars.bookingDetails.time_zone,
+                            timeZoneLabel: vars.bookingDetails.time_zone,
+                            practitionerName: vars.bookingDetails.practitioner_name,
+                            specialtyLabel: vars.bookingDetails.specialty,
+                            clinicName: vars.bookingDetails.clinic_name,
+                            clinicAddressLine1: vars.bookingDetails.address_line1,
+                            clinicCity: vars.bookingDetails.city,
+                            manageUrl: 'Please contact your clinic to cancel or reschedule.'
+                        }]"/>
+
+                    <flow-ref
+                        name="send-appointment-email"
+                        doc:name="Send Booking Confirmation Email"/>
+
+                    <logger
+                        level="INFO"
+                        doc:name="Booking Email Processed"
+                        message="#['Booking confirmation email processed for ' ++ (vars.bookingDetails.appointment_id as String)]"/>
+                </otherwise>
+            </choice>
+        </when>
+
+        <otherwise>
+            <logger
+                level="WARN"
+                doc:name="Unsupported Notification"
+                message="#['Unsupported notification event: ' ++ (vars.bookingEvent.eventType default vars.bookingEvent.notifyType default 'UNKNOWN')]"/>
+        </otherwise>
+
+    </choice>
+</flow>
+<!-- Appointment Reminder Consumer -->
+<flow name="appointment-reminder-consumerFlow">
+
+    <jms:listener
+        doc:name="Appointment Reminder Message"
+        config-ref="JMS_Config"
+        destination="appointment.reminder.queue"
+        ackMode="AUTO"
+        inboundContentType="application/json"
+        inboundEncoding="UTF-8"/>
+
+    <set-variable
+    variableName="reminderEvent"
+    value="#[read(payload, 'application/json')]"
+    doc:name="Save Reminder Event"/>
+
+    <logger
+        level="INFO"
+        doc:name="Reminder Received"
+        message="#['Reminder event received for appointment ' ++ (vars.reminderEvent.appointmentId as String)]"/>
+
+    <db:select
+        config-ref="Database_Config"
+        doc:name="Fetch Reminder Details">
+
+        <db:sql><![CDATA[
+            SELECT
+                a.appointment_id,
+                a.start_utc,
+                a.status,
+                a.reminder_state,
+                p.patient_name,
+                p.contact_email,
+                pr.practitioner_name,
+                pr.specialty,
+                c.clinic_name,
+                c.address_line1,
+                c.city,
+                c.time_zone
+            FROM appointments a
+            JOIN patients p
+                ON a.patient_id = p.patient_id
+            JOIN practitioners pr
+                ON a.practitioner_id = pr.practitioner_id
+            JOIN clinics c
+                ON a.clinic_id = c.clinic_id
+            WHERE a.appointment_id = :appointmentId
+        ]]></db:sql>
+
+        <db:input-parameters><![CDATA[
+            #[{
+                appointmentId: vars.reminderEvent.appointmentId as String
+            }]
+        ]]></db:input-parameters>
+    </db:select>
+
+    <choice doc:name="Validate Reminder">
+
+        <when expression="#[
+            isEmpty(payload)
+            or upper((payload[0].status default '') as String) != 'BOOKED'
+            or upper((payload[0].reminder_state default '') as String) == 'SENT'
+        ]">
+            <logger
+                level="WARN"
+                message="Reminder skipped: appointment unavailable, not BOOKED, or reminder already sent."/>
+        </when>
+
+        <otherwise>
+            <set-variable
+                variableName="reminderDetails"
+                value="#[payload[0]]"
+                doc:name="Save Reminder Details"/>
+
+            <set-payload
+                doc:name="Build Reminder Email"
+                value="#[{
+                    emailType: 'APPOINTMENT_REMINDER',
+                    appointmentId: vars.reminderDetails.appointment_id,
+                    patientName: vars.reminderDetails.patient_name,
+                    contactEmail: vars.reminderDetails.contact_email,
+                    recipientEmail: vars.reminderDetails.contact_email,
+                    startLocalLong: vars.reminderDetails.start_utc as String,
+                    localDateTime: vars.reminderDetails.start_utc as String,
+                    timeZone: vars.reminderDetails.time_zone,
+                    timeZoneLabel: vars.reminderDetails.time_zone,
+                    practitionerName: vars.reminderDetails.practitioner_name,
+                    specialtyLabel: vars.reminderDetails.specialty,
+                    clinicName: vars.reminderDetails.clinic_name,
+                    clinicAddressLine1: vars.reminderDetails.address_line1,
+                    clinicCity: vars.reminderDetails.city,
+                    manageUrl: 'Please contact your clinic to cancel or reschedule.'
+                }]"/>
+
+            <flow-ref
+                name="send-appointment-email"
+                doc:name="Send Reminder Email"/>
+
+            <db:update
+                config-ref="Database_Config"
+                doc:name="Mark Reminder Sent">
+                <db:sql><![CDATA[
+                    UPDATE appointments
+                    SET reminder_state = 'SENT',
+                        reminder_sent_at = UTC_TIMESTAMP()
+                    WHERE appointment_id = :appointmentId
+                      AND status = 'BOOKED'
+                      AND (reminder_state IS NULL OR reminder_state != 'SENT')
+                ]]></db:sql>
+                <db:input-parameters><![CDATA[
+                    #[{
+                        appointmentId:
+                            vars.reminderDetails.appointment_id as String
+                    }]
+                ]]></db:input-parameters>
+            </db:update>
+
+            <logger
+                level="INFO"
+                message="#['Reminder email processed for ' ++ (vars.reminderDetails.appointment_id as String)]"/>
+        </otherwise>
+    </choice>
+</flow>
+<!-- Automatic Reminder Scheduler -->
+<flow name="appointment-reminder-schedulerFlow">
+
+    <scheduler doc:name="Check Due Appointment Reminders">
+        <scheduling-strategy>
+            <fixed-frequency frequency="60000" timeUnit="MILLISECONDS"/>
+        </scheduling-strategy>
+    </scheduler>
+
+    <db:select
+        config-ref="Database_Config"
+        doc:name="Find Due Reminders">
+
+        <db:sql><![CDATA[
+            SELECT appointment_id
+            FROM appointments
+            WHERE status = 'BOOKED'
+              AND reminder_state = 'SCHEDULED'
+              AND reminder_due_at IS NOT NULL
+              AND reminder_due_at <= UTC_TIMESTAMP()
+            ORDER BY reminder_due_at
+        ]]></db:sql>
+    </db:select>
+
+    <foreach doc:name="Publish Each Due Reminder">
 
         <set-variable
-            doc:name="Save Reminder Event"
-            variableName="reminderEvent"
-            value="#[payload]"/>
+            variableName="currentReminder"
+            value="#[payload]"
+            doc:name="Save Current Reminder"/>
+
+        <jms:publish
+            doc:name="Publish Reminder Event"
+            config-ref="JMS_Config"
+            destination="appointment.reminder.queue">
+
+            <jms:message>
+                <jms:body><![CDATA[#[write({
+                    eventType: 'APPOINTMENT_REMINDER',
+                    appointmentId: vars.currentReminder.appointment_id
+                }, 'application/json')]]]></jms:body>
+            </jms:message>
+        </jms:publish>
 
         <logger
             level="INFO"
-            doc:name="Reminder Received"
-            message="#['Reminder event received; correlationId=' ++ ((vars.reminderEvent.correlationId default 'missing') as String)]"/>
+            doc:name="Reminder Event Published"
+            message="#['Reminder event published for appointment ' ++ (vars.currentReminder.appointment_id as String)]"/>
 
-        <db:select
-            doc:name="Revalidate Appointment"
-            config-ref="Database_Config">
-            <db:sql><![CDATA[
-                SELECT appointment_id, status, reminder_state,
-                       reminder_due_at, reminder_sent_at
-                FROM appointments
-                WHERE appointment_id = :appointmentId
-            ]]></db:sql>
-            <db:input-parameters><![CDATA[
-                #[{
-                    appointmentId: vars.reminderEvent.appointmentId as String
-                }]
-            ]]></db:input-parameters>
-        </db:select>
+    </foreach>
 
-        <choice doc:name="Check Appointment State">
+</flow>
 
-            <when expression="#[isEmpty(payload)]">
-                <logger
-                    level="WARN"
-                    doc:name="Appointment Not Found"
-                    message="Reminder suppressed: appointment was not found."/>
-            </when>
-
-            <when expression="#[upper((payload[0].status default '') as String) != 'BOOKED']">
-                <db:update
-                    doc:name="Suppress Non-Booked Reminder"
-                    config-ref="Database_Config">
-                    <db:sql><![CDATA[
-                        UPDATE appointments
-                        SET reminder_state = 'SUPPRESSED'
-                        WHERE appointment_id = :appointmentId
-                          AND reminder_state <> 'SENT'
-                    ]]></db:sql>
-                    <db:input-parameters><![CDATA[
-                        #[{
-                            appointmentId: vars.reminderEvent.appointmentId as String
-                        }]
-                    ]]></db:input-parameters>
-                </db:update>
-
-                <logger
-                    level="INFO"
-                    doc:name="Reminder Suppressed"
-                    message="Reminder suppressed because appointment is not BOOKED."/>
-            </when>
-
-            <when expression="#[upper((payload[0].reminder_state default '') as String) == 'SENT']">
-                <logger
-                    level="INFO"
-                    doc:name="Duplicate Reminder Suppressed"
-                    message="Duplicate reminder suppressed."/>
-            </when>
-
-            <otherwise>
-                <logger
-                    level="INFO"
-                    doc:name="Reminder Eligible"
-                    message="#['Appointment reminder is eligible for delivery; correlationId=' ++ ((vars.reminderEvent.correlationId default 'missing') as String)]"/>
-
-                <!-- Email owner must connect the agreed email subflow here.
-                     Do not mark SENT until the email send succeeds. -->
-            </otherwise>
-
-        </choice>
-    </flow>
 
 </mule>
