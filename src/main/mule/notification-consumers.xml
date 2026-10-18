@@ -35,6 +35,12 @@
         inboundContentType="application/json"
         inboundEncoding="UTF-8"/>
 
+    <flow-ref name="process-notification-event" doc:name="Process Message"/>
+</flow>
+
+<!-- Extracted business logic so MUnit can test it without starting a JMS listener. -->
+<sub-flow name="process-notification-event">
+
     <set-variable
         variableName="bookingEvent"
         value="#[read(payload, 'application/json')]"
@@ -83,13 +89,7 @@
     <choice doc:name="Route Notification Type">
 
         <!-- CANCELLATION EMAIL -->
-        <when expression="#[
-            upper((vars.bookingEvent.eventType default '') as String)
-                == 'APPOINTMENT_CANCELLED'
-            or
-            upper((vars.bookingEvent.notifyType default '') as String)
-                == 'CANCELLATION'
-        ]">
+        <when expression="#[upper((vars.bookingEvent.eventType default '') as String)&#10;                == 'APPOINTMENT_CANCELLED'&#10;            or&#10;            upper((vars.bookingEvent.notifyType default '') as String)&#10;                == 'CANCELLATION']">
 
             <choice doc:name="Validate Cancellation">
 
@@ -144,16 +144,7 @@
         </when>
 
         <!-- BOOKING CONFIRMATION EMAIL -->
-        <when expression="#[
-    upper((vars.bookingEvent.notifyType default '') as String)
-        == 'CONFIRMATION'
-    or
-    upper((vars.bookingEvent.eventType default '') as String)
-        == 'APPOINTMENT_BOOKED'
-    or
-    upper((vars.bookingEvent.eventType default '') as String)
-        == 'BOOKING_CONFIRMATION'
-]">
+        <when expression="#[upper((vars.bookingEvent.notifyType default '') as String)&#10;        == 'CONFIRMATION'&#10;    or&#10;    upper((vars.bookingEvent.eventType default '') as String)&#10;        == 'APPOINTMENT_BOOKED'&#10;    or&#10;    upper((vars.bookingEvent.eventType default '') as String)&#10;        == 'BOOKING_CONFIRMATION']">
 
             <choice doc:name="Validate Booking">
 
@@ -214,7 +205,9 @@
         </otherwise>
 
     </choice>
-</flow>
+
+</sub-flow>
+
 <!-- Appointment Reminder Consumer -->
 <flow name="appointment-reminder-consumerFlow">
 
@@ -225,6 +218,12 @@
         ackMode="AUTO"
         inboundContentType="application/json"
         inboundEncoding="UTF-8"/>
+
+    <flow-ref name="process-appointment-reminder-event" doc:name="Process Message"/>
+</flow>
+
+<!-- Extracted business logic so MUnit can test it without starting a JMS listener. -->
+<sub-flow name="process-appointment-reminder-event">
 
     <set-variable
     variableName="reminderEvent"
@@ -337,7 +336,9 @@
                 message="#['Reminder email processed for ' ++ (vars.reminderDetails.appointment_id as String)]"/>
         </otherwise>
     </choice>
-</flow>
+
+</sub-flow>
+
 <!-- Automatic Reminder Scheduler -->
 <flow name="appointment-reminder-schedulerFlow">
 
@@ -361,6 +362,12 @@
             ORDER BY reminder_due_at
         ]]></db:sql>
     </db:select>
+
+    <flow-ref name="publish-due-appointment-reminders" doc:name="Publish Due Reminders"/>
+</flow>
+
+<!-- Extracted scheduler processing so MUnit can test publishing without waiting for the scheduler. -->
+<sub-flow name="publish-due-appointment-reminders">
 
     <foreach doc:name="Publish Each Due Reminder">
 
@@ -389,7 +396,9 @@
 
     </foreach>
 
-</flow>
+
+</sub-flow>
+
 
 
 </mule>
