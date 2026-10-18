@@ -15,6 +15,7 @@
 
 		<app.runtime>4.12.2</app.runtime>
 		<mule.maven.plugin.version>4.10.1</mule.maven.plugin.version>
+		<munit.version>3.7.3</munit.version>
 	</properties>
 
 	<build>
@@ -40,6 +41,29 @@
 							<artifactId>activemq-client</artifactId>
 						</sharedLibrary>
 					</sharedLibraries>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>com.mulesoft.munit.tools</groupId>
+				<artifactId>munit-maven-plugin</artifactId>
+				<version>${munit.version}</version>
+				<executions>
+					<execution>
+						<id>test</id>
+						<phase>test</phase>
+						<goals>
+							<goal>test</goal>
+							<goal>coverage-report</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<coverage>
+						<runCoverage>true</runCoverage>
+						<formats>
+							<format>html</format>
+						</formats>
+					</coverage>
 				</configuration>
 			</plugin>
 		</plugins>
@@ -84,16 +108,35 @@
 		<dependency>
 			<groupId>org.apache.activemq</groupId>
 			<artifactId>activemq-client</artifactId>
-			<version>6.1.0</version>
+			<version>6.3.2</version>
 		</dependency>
 		<dependency>
-    		<groupId>org.mule.connectors</groupId>
-    		<artifactId>mule-email-connector</artifactId>
-    		<version>1.8.0</version>
-    		<classifier>mule-plugin</classifier>
+			<groupId>org.mule.connectors</groupId>
+			<artifactId>mule-email-connector</artifactId>
+			<version>1.8.0</version>
+			<classifier>mule-plugin</classifier>
+		</dependency>
+		<dependency>
+			<groupId>com.mulesoft.munit</groupId>
+			<artifactId>munit-runner</artifactId>
+			<version>3.7.3</version>
+			<classifier>mule-plugin</classifier>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.mulesoft.munit</groupId>
+			<artifactId>munit-tools</artifactId>
+			<version>3.7.3</version>
+			<classifier>mule-plugin</classifier>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.mule.weave</groupId>
+			<artifactId>assertions</artifactId>
+			<version>1.2.1</version>
+			<scope>test</scope>
 		</dependency>
 	</dependencies>
-	
 	<repositories>
 		<repository>
 			<id>anypoint-exchange-v3</id>

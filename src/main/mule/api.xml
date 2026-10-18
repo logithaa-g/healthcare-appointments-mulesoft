@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mule xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd 
-http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:jms="http://www.mulesoft.org/schema/mule/jms"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+        http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd
+        http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
     <http:listener-config name="api-httpListenerConfig">
         <http:listener-connection host="0.0.0.0" port="8081" />
     </http:listener-config>
@@ -133,16 +146,16 @@ output application/java
 attributes.uriParams.'appointmentId']]></ee:set-variable>
             </ee:variables>
         </ee:transform>
-        <db:select doc:name="Select" doc:id="24b6c023-d6d6-467d-9f10-a0b357d90f4b" config-ref="Database_Config">
+        <db:select doc:name="Select" doc:id="ec05ad19-3cfd-4470-a1a9-aeb92df5d995" config-ref="Database_Config">
 			<db:sql ><![CDATA[SELECT appointment_id, slot_id, status
 FROM appointments
 WHERE appointment_id = :appointmentId]]></db:sql>
 			<db:input-parameters ><![CDATA[#[{appointmentId: vars.appointmentId}]]]></db:input-parameters>
 		</db:select>
-		<choice doc:name="Choice" doc:id="c5cd0216-b843-4d7d-a0b6-627192f79eed" >
+		<choice doc:name="Choice" doc:id="6e1b0964-0287-4b2b-9c35-badc6a0c2e93" >
 			<when expression="#[isEmpty(payload)]">
-				<set-variable value="#[404]" doc:name="Set Variable" doc:id="feb028e0-2034-4e08-9316-a24eb9ac014c" variableName="httpStatus"/>
-				<ee:transform doc:name="Transform Message" doc:id="abac5761-584f-4cad-b5e6-3d5bae4c7c10" >
+				<set-variable value="#[404]" doc:name="Set Variable" doc:id="e2c9f294-f2ae-43cd-9405-c71ecae23090" variableName="httpStatus"/>
+				<ee:transform doc:name="Transform Message" doc:id="fd91a754-4681-4070-914c-682ca3d3cb8f" >
 					<ee:message >
 						<ee:set-payload ><![CDATA[%dw 2.0
 output application/json
@@ -155,10 +168,10 @@ output application/json
 				</ee:transform>
 			</when>
 			<otherwise >
-				<choice doc:name="Choice" doc:id="c58aee13-386f-43fd-b721-376648e7ac86" >
+				<choice doc:name="Choice" doc:id="8476b407-36a9-4673-b526-aa3c278aa42d" >
 					<when expression='#[upper(payload[0].status as String) == "CANCELLED"]'>
-						<set-variable value="#[409]" doc:name="Set Variable" doc:id="bb093aa8-cae1-41e6-a31b-ab3fce81829d" variableName="httpStatus"/>
-						<ee:transform doc:name="Transform Message" doc:id="8c23e09c-1441-45b5-b2ec-34828b59b1e0" >
+						<set-variable value="#[409]" doc:name="Set Variable" doc:id="1abd2891-a935-435d-81d3-a95e0cd67c66" variableName="httpStatus"/>
+						<ee:transform doc:name="Transform Message" doc:id="1e42a8a2-b235-4637-8ef5-67d4d71765a3" >
 							<ee:message >
 								<ee:set-payload ><![CDATA[%dw 2.0
 output application/json
@@ -171,15 +184,17 @@ output application/json
 						</ee:transform>
 					</when>
 					<otherwise >
-						<db:update doc:name="Update" doc:id="9104d353-b7c6-4ed0-b0d1-d66844c08145" config-ref="Database_Config">
+						<db:update doc:name="Update" doc:id="9be9e459-142f-4a9b-8248-deaa4ebcabbb" config-ref="Database_Config">
 							<db:sql ><![CDATA[UPDATE appointments
-SET status = 'CANCELLED'
+SET status = 'CANCELLED',
+    cancelled_at = UTC_TIMESTAMP(),
+    reminder_state = 'SUPPRESSED'
 WHERE appointment_id = :appointmentId]]></db:sql>
 							<db:input-parameters ><![CDATA[#[{
   appointmentId: vars.appointmentId
 }]]]></db:input-parameters>
 						</db:update>
-						<db:update doc:name="Update" doc:id="3cb36bfc-d2a7-4993-87ba-4e641556027b" config-ref="Database_Config">
+						<db:update doc:name="Update" doc:id="f2d0f952-5d35-4a5a-a3cb-e3a928db9edb" config-ref="Database_Config">
 							<db:sql ><![CDATA[UPDATE slots
 SET status = 'OPEN',
     appointment_id = NULL,
@@ -189,7 +204,22 @@ WHERE appointment_id = :appointmentId]]></db:sql>
   appointmentId: vars.appointmentId
 }]]]></db:input-parameters>
 						</db:update>
-						<set-variable value="#[200]" doc:name="Set Variable" doc:id="edc0f0d9-324b-4631-b46f-1df473b64436" variableName="httpStatus"/>
+						<jms:publish
+    doc:name="Publish Cancellation Event"
+    config-ref="JMS_Config"
+    destination="appointment.notify.queue">
+    <jms:message>
+        <jms:body><![CDATA[#[write({
+            eventType: "APPOINTMENT_CANCELLED",
+            appointmentId: vars.appointmentId,
+            notifyType: "CANCELLATION",
+            cancelledBy: "PATIENT",
+            cancelReason: "Unable to attend",
+            slotReleased: true
+        }, "application/json")]]]></jms:body>
+    </jms:message>
+</jms:publish>
+						<set-variable value="#[200]" doc:name="Set Variable" doc:id="cf839757-91bb-4bae-b9a2-bf6b5c5957c2" variableName="httpStatus"/>
 						<ee:transform doc:name="Transform Message">
             <ee:message>
                 <ee:set-payload><![CDATA[%dw 2.0
@@ -207,7 +237,7 @@ output application/json
 		</choice>
     </flow>
     <flow name="get:\slots:api-config">
-        <db:select doc:name="Select" doc:id="49ea6db3-b13d-4a71-9e4f-08bdce6020cd" config-ref="Database_Config">
+        <db:select doc:name="Select" doc:id="9be40030-3605-44d3-a493-a490e523e9ef" config-ref="Database_Config">
 			<db:sql ><![CDATA[SELECT
     slot_id,
     clinic_id,
@@ -236,28 +266,39 @@ payload]]></ee:set-payload>
         </ee:transform>
     </flow>
 	<flow name="post:\appointments:application\json:api-config">
-        <set-variable value="#[payload]" doc:name="Set Variable" doc:id="0709bf32-702b-4696-929d-0fddc19c58d1" variableName="bookingRequest"/>
-		<db:select doc:name="Select" doc:id="106b6c2e-55f8-40f3-a6ea-b57e0b032a31" config-ref="Database_Config">
+        <set-variable value="#[payload]" doc:name="Set Variable" doc:id="f0a7143f-a7f8-4ec9-b730-59079f8b996b" variableName="bookingRequest"/>
+		<db:select doc:name="Select" doc:id="af19a4e0-db88-4270-9fc8-8c5ee1c54f71" config-ref="Database_Config">
 			<db:sql ><![CDATA[SELECT
-    slot_id,
-    clinic_id,
-    practitioner_id,
-    start_utc,
-    end_utc,
-    status
-FROM slots
-WHERE slot_id = :slotId
-  AND clinic_id = :clinicId;]]></db:sql>
+    s.slot_id,
+    s.clinic_id,
+    s.practitioner_id,
+    s.start_utc,
+    s.end_utc,
+    s.status,
+    c.clinic_name,
+    c.time_zone,
+    p.practitioner_name
+FROM slots s
+JOIN clinics c
+    ON s.clinic_id = c.clinic_id
+JOIN practitioners p
+    ON s.practitioner_id = p.practitioner_id
+WHERE s.slot_id = :slotId
+  AND s.clinic_id = :clinicId;]]></db:sql>
 			<db:input-parameters ><![CDATA[#[{
   slotId: payload.slotId,
   clinicId: payload.clinicId
 }]]]></db:input-parameters>
 		</db:select>
-		<logger level="INFO" doc:name="Logger" doc:id="331ff622-60be-42cb-a284-7a731d4c264a" message='#[write(payload, "application/json")]'/>
-		<choice doc:name="Choice" doc:id="19556a68-f1e7-42b4-bef1-d77b6004a81d" >
+		<set-variable
+    variableName="selectedSlot"
+    value="#[payload[0]]"
+    doc:name="Save Selected Slot"/>
+		<logger level="INFO" doc:name="Logger" doc:id="df6d5695-f93a-44a4-bb40-217bcd038cb8" message='#[write(payload, "application/json")]'/>
+		<choice doc:name="Choice" doc:id="5a92c128-4ac0-4182-a39e-68bdef51995a" >
 			<when expression="#[!isEmpty(payload) and payload[0].start_utc &lt; now()]">
-				<set-variable value="422" doc:name="Set Variable" doc:id="7db9423d-8eb2-4fcf-b5a7-7d55ece60db0" variableName="httpStatus"/>
-				<ee:transform doc:name="Transform Message" doc:id="32c13572-a41b-452a-b915-c19197707003" >
+				<set-variable value="422" doc:name="Set Variable" doc:id="2b995656-30f6-49cb-93b5-154016fc2183" variableName="httpStatus"/>
+				<ee:transform doc:name="Transform Message" doc:id="ec894308-425f-42d5-9e8e-80bd8cbee6d3" >
 					<ee:message >
 						<ee:set-payload ><![CDATA[%dw 2.0
 output application/json
@@ -270,11 +311,20 @@ output application/json
 				</ee:transform>
 			</when>
 			<otherwise >
-				<choice doc:name="Choice" doc:id="1bf3e5a2-b52a-4e24-b100-b225b6a9c1ab">
+				<choice doc:name="Choice" doc:id="d14e4df0-eeef-40ac-9cdf-049b8337397d">
 			<when expression='#[!isEmpty(payload) and payload[0].status == "OPEN"]'>
-				<set-variable value='#["APT-" ++ (now() as String {format: "yyyyMMddHHmmss"})]' doc:name="Set Variable" doc:id="52151ad6-c100-4622-8858-f6ded4142ead" variableName="appointmentId" />
-				<set-variable value="201" doc:name="Set Variable" doc:id="7bbc4184-7564-49d0-b4b5-27508069cf2e" variableName="httpStatus" />
-				<db:insert doc:name="Insert" doc:id="584b76d8-9913-4141-8556-ae8bde05b119" config-ref="Database_Config">
+				<set-variable value='#["APT-" ++ (now() as String {format: "yyyyMMddHHmmss"})]' doc:name="Set Variable" doc:id="77cd5f00-ec1d-4bc7-a370-dfe650c22834" variableName="appointmentId" />
+				<set-variable
+    variableName="bookingTimestamp"
+    value="#[now()]"
+    doc:name="Save Booking Timestamp"/>
+
+<set-variable
+    variableName="bookingCorrelationId"
+    value="#[(attributes.headers.'x-correlation-id' default uuid()) as String]"
+    doc:name="Save Booking Correlation ID"/>
+				<set-variable value="201" doc:name="Set Variable" doc:id="c58071e7-9247-4fe2-aebb-a8539d729549" variableName="httpStatus" />
+				<db:insert doc:name="Insert" doc:id="7b134a6e-2aee-4f00-a1d4-4559ad9218ec" config-ref="Database_Config">
 					<db:sql><![CDATA[INSERT INTO appointments (
     appointment_id,
     patient_id,
@@ -311,14 +361,14 @@ VALUES (
   clinicId: vars.bookingRequest.clinicId,
   practitionerId: payload[0].practitioner_id,
   slotId: vars.bookingRequest.slotId,
-  startUtc: payload[0].start_utc,
+  startUtc: vars.selectedSlot.start_utc,
   reasonForVisit: vars.bookingRequest.reasonForVisit,
-  requestId: (attributes.headers.'x-request-id' default uuid()) as String,
-  correlationId: (attributes.headers.'x-correlation-id' default attributes.headers.'x-request-id' default uuid()) as String,
-  reminderDueAt: (now() + |PT2H|) as LocalDateTime
+  requestId: (attributes.headers.'x-request-id' default vars.bookingCorrelationId) as String,
+correlationId: vars.bookingCorrelationId,
+  reminderDueAt: (vars.selectedSlot.start_utc as LocalDateTime) - |PT1H|
 }]]]></db:input-parameters>
 				</db:insert>
-				<db:update doc:name="Update" doc:id="aa2b6654-bc6e-4444-91b3-3c4f44a64120" config-ref="Database_Config">
+				<db:update doc:name="Update" doc:id="4ba30ffe-b0a8-423c-b879-245c40e11464" config-ref="Database_Config">
 					<db:sql><![CDATA[UPDATE slots
 SET status = 'BOOKED',
     appointment_id = :appointmentId,
@@ -332,24 +382,66 @@ WHERE slot_id = :slotId
   clinicId: vars.bookingRequest.clinicId
 }]]]></db:input-parameters>
 				</db:update>
-				<ee:transform doc:name="Transform Message">
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
+                <!-- Preserve the HTTP response before changing payload for JMS. -->
+                <set-variable variableName="bookingResponse" doc:name="Save Booking Response"
+                    value="#[output application/java --- {
+                        appointmentId: vars.appointmentId,
+                        status: 'BOOKED',
+                        clinicId: vars.bookingRequest.clinicId,
+                        clinicName: vars.selectedSlot.clinic_name default null,
+                        practitionerName: vars.selectedSlot.practitioner_name default null,
+                        startLocal: vars.selectedSlot.start_utc as String,
+                        timeZone: vars.selectedSlot.time_zone default null,
+                        bookedAt: vars.bookingTimestamp as String,
+                        reminderScheduledFor: ((vars.selectedSlot.start_utc as LocalDateTime) - |PT1H|) as String,
+                        confirmationEmailQueued: false
+                    }]"/>
+
+                <!-- JMS failure is handled here so it does not replace the booking JSON response. -->
+                <try doc:name="Publish Booking Confirmation Safely">
+                    <set-payload
+                        doc:name="Build Booking Event"
+                        value="#[output application/java --- {
+                            eventType: 'BOOKING_CONFIRMATION',
+                            appointmentId: vars.appointmentId,
+                            patientId: vars.bookingRequest.patientId,
+                            clinicId: vars.bookingRequest.clinicId,
+                            slotId: vars.bookingRequest.slotId,
+                            correlationId: vars.bookingCorrelationId
+                        }]"/>
+                    <jms:publish
+                        doc:name="Publish Booking Confirmation"
+                        config-ref="JMS_Config"
+                        destination="appointment.notify.queue">
+                        <jms:message>
+                            <jms:body>#[write(payload, 'application/json')]</jms:body>
+                        </jms:message>
+                    </jms:publish>
+                    <set-variable variableName="bookingResponse" doc:name="Mark Confirmation Queued"
+                        value="#[vars.bookingResponse ++ {confirmationEmailQueued: true}]"/>
+                    <logger level="INFO" doc:name="Booking Event Published"
+                        message="#['Booking event published for appointment ' ++ vars.appointmentId]"/>
+                    <error-handler>
+                        <on-error-continue type="ANY" logException="true" doc:name="Continue if JMS Publish Fails">
+                            <logger level="ERROR" doc:name="Booking Event Publish Failed"
+                                message="#['Booking saved but confirmation event could not be queued for appointment ' ++ vars.appointmentId]"/>
+                        </on-error-continue>
+                    </error-handler>
+                </try>
+
+                <!-- Restore the response object and explicitly serialize it as JSON. -->
+                <ee:transform doc:name="Return Booking Response JSON">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-{
-  message: "Booking request received",
-  patientId: vars.bookingRequest.patientId,
-  clinicId: vars.bookingRequest.clinicId,
-  slotId: vars.bookingRequest.slotId,
-  reasonForVisit: vars.bookingRequest.reasonForVisit
-}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
+vars.bookingResponse]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
 			</when>
 			<otherwise>
-				<set-variable value="409" doc:name="Set Variable" doc:id="9d3b050d-68dd-49ae-90ae-56982ae0e172" variableName="httpStatus" />
-				<ee:transform doc:name="Transform Message" doc:id="8dbd6aa5-78d8-45dd-998e-592b8ee5f4c5">
+				<set-variable value="409" doc:name="Set Variable" doc:id="2128d83b-5d1a-4a43-b1b5-1d55786eb770" variableName="httpStatus" />
+				<ee:transform doc:name="Transform Message" doc:id="75e169a5-6852-4f6a-abd8-571a08600e35">
 					<ee:message>
 						<ee:set-payload><![CDATA[%dw 2.0
 output application/json

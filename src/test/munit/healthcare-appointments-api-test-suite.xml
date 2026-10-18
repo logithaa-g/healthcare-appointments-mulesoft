@@ -1,0 +1,1114 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools" xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:email="http://www.mulesoft.org/schema/mule/email" xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xsi:schemaLocation="         http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd         http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd         http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd         http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd         http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd         http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd">
+
+
+    <http:request-config name="MUnit_API_HTTP_Request" basePath="/">
+        <http:request-connection host="localhost" port="8081"/>
+        <http:response-validator>
+            <http:success-status-code-validator values="100..599"/>
+        </http:response-validator>
+    </http:request-config>
+    <http:request-config name="MUnit_Email_HTTP_Request" basePath="/">
+        <http:request-connection host="localhost" port="8082"/>
+        <http:response-validator>
+            <http:success-status-code-validator values="100..599"/>
+        </http:response-validator>
+    </http:request-config>
+
+    <munit:config name="healthcare-appointments-api-test-suite.xml"/>
+
+    <!-- Existing API flow tests -->
+    <munit:test name="get-slots-flow-test" description="GET slots returns a payload">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="9be40030-3605-44d3-a493-a490e523e9ef"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-MUNIT-01', clinic_id: 'CLN-BLR-01', practitioner_id: 'DOC-01', specialty: 'General', start_utc: now() + |P2D|, end_utc: now() + |P2D| + |PT30M|, status: 'OPEN'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+                <munit:attributes value="#[{queryParams: {clinicId: 'CLN-BLR-01', date: (now() + |P2D|) as String {format: 'yyyy-MM-dd'}}}]"/>
+            </munit:set-event>
+            <flow-ref name="get:\slots:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload != null]" is="#[MunitTools::equalTo(true)]" message="GET slots should return a payload"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="api-error-response-payload-test" description="Verify not-found response payload and status shape">
+        <munit:execution>
+            <set-payload value="#[{message: 'Resource not found'}]"/>
+            <set-variable variableName="httpStatus" value="#[404]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(404)]" message="Not-found response should use status 404"/>
+            <munit-tools:assert-that expression="#[payload.message]" is="#[MunitTools::equalTo('Resource not found')]" message="Not-found response message should match"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="delete-missing-appointment-test" description="DELETE returns 404 for missing appointment">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="ec05ad19-3cfd-4470-a1a9-aeb92df5d995"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- []]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+                <munit:attributes value="#[{uriParams: {appointmentId: 'APT-MUNIT-MISSING'}}]"/>
+            </munit:set-event>
+            <flow-ref name="delete:\appointments\(appointmentId):api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(404)]" message="Expected HTTP 404"/>
+            <munit-tools:assert-that expression="#[payload.error]" is="#[MunitTools::equalTo('APPOINTMENT_NOT_FOUND')]" message="Expected missing appointment error"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="delete-already-cancelled-test" description="DELETE returns 409 for already-cancelled appointment">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="ec05ad19-3cfd-4470-a1a9-aeb92df5d995"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-MUNIT-CANCELLED', slot_id: 'SLT-MUNIT-01', status: 'CANCELLED'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+                <munit:attributes value="#[{uriParams: {appointmentId: 'APT-MUNIT-CANCELLED'}}]"/>
+            </munit:set-event>
+            <flow-ref name="delete:\appointments\(appointmentId):api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(409)]" message="Expected HTTP 409"/>
+            <munit-tools:assert-that expression="#[payload.error]" is="#[MunitTools::equalTo('APPOINTMENT_ALREADY_CANCELLED')]" message="Expected already-cancelled error"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="post-unavailable-slot-test" description="POST returns 409 when slot is booked">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="af19a4e0-db88-4270-9fc8-8c5ee1c54f71"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-MUNIT-01', clinic_id: 'CLN-BLR-01', practitioner_id: 'DOC-01', start_utc: ((now() + |P2D|) as LocalDateTime), end_utc: (((now() + |P2D|) as LocalDateTime) + |PT30M|), status: 'BOOKED', clinic_name: 'Test Clinic', time_zone: 'Asia/Kolkata', practitioner_name: 'Test Doctor'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{patientId: 'PAT-MUNIT-01', clinicId: 'CLN-BLR-01', slotId: 'SLT-MUNIT-01', reasonForVisit: 'MUnit test'}]" mediaType="application/java"/>
+                <munit:attributes value="#[{headers: {'x-request-id': 'REQ-MUNIT-01', 'x-correlation-id': 'COR-MUNIT-01'}}]"/>
+            </munit:set-event>
+            <flow-ref name="post:\appointments:application\json:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo('409')]" message="Expected HTTP 409"/>
+            <munit-tools:assert-that expression="#[payload.errorCode]" is="#[MunitTools::equalTo('SLOT_UNAVAILABLE')]" message="Expected SLOT_UNAVAILABLE"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="post-slot-in-past-test" description="POST returns 422 for past slot">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="af19a4e0-db88-4270-9fc8-8c5ee1c54f71"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-MUNIT-PAST', clinic_id: 'CLN-BLR-01', practitioner_id: 'DOC-01', start_utc: ((now() - |P2D|) as LocalDateTime), end_utc: (((now() - |P2D|) as LocalDateTime) + |PT30M|), status: 'OPEN', clinic_name: 'Test Clinic', time_zone: 'Asia/Kolkata', practitioner_name: 'Test Doctor'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{patientId: 'PAT-MUNIT-01', clinicId: 'CLN-BLR-01', slotId: 'SLT-MUNIT-PAST', reasonForVisit: 'MUnit test'}]" mediaType="application/java"/>
+                <munit:attributes value="#[{headers: {'x-request-id': 'REQ-MUNIT-02', 'x-correlation-id': 'COR-MUNIT-02'}}]"/>
+            </munit:set-event>
+            <flow-ref name="post:\appointments:application\json:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo('422')]" message="Expected HTTP 422"/>
+            <munit-tools:assert-that expression="#[payload.errorCode]" is="#[MunitTools::equalTo('SLOT_IN_PAST')]" message="Expected SLOT_IN_PAST"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="post-slot-not-found-test" description="POST returns unavailable when slot lookup is empty">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="af19a4e0-db88-4270-9fc8-8c5ee1c54f71"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- []]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{patientId: 'PAT-MUNIT-02', clinicId: 'CLN-BLR-01', slotId: 'SLT-MUNIT-MISSING', reasonForVisit: 'MUnit test'}]" mediaType="application/java"/>
+                <munit:attributes value="#[{headers: {'x-request-id': 'REQ-MUNIT-03', 'x-correlation-id': 'COR-MUNIT-03'}}]"/>
+            </munit:set-event>
+            <flow-ref name="post:\appointments:application\json:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo('409')]" message="Expected HTTP 409"/>
+            <munit-tools:assert-that expression="#[payload.errorCode]" is="#[MunitTools::equalTo('SLOT_UNAVAILABLE')]" message="Expected SLOT_UNAVAILABLE"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- EMAIL SUB-FLOW: confirmation email; SMTP is mocked so no real email is sent. -->
+    <munit:test name="email-booking-confirmation-test" description="Build and send booking confirmation using mocked SMTP">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'BOOKING_CONFIRMATION', contactEmail: 'patient@example.com', patientName: 'Test Patient', appointmentId: 'APT-EMAIL-01', localDateTime: '15 October 2026 10:00 AM', timeZone: 'Asia/Kolkata', practitionerName: 'Test Doctor', specialtyLabel: 'General Medicine', clinicName: 'Test Clinic', clinicAddressLine1: 'Test Road', clinicCity: 'Bengaluru', manageUrl: 'Contact clinic'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailSubject contains 'Appointment confirmed']" is="#[MunitTools::equalTo(true)]" message="Confirmation subject should be built"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Test Patient']" is="#[MunitTools::equalTo(true)]" message="Confirmation body should include patient name"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- EMAIL SUB-FLOW: reminder email -->
+    <munit:test name="email-reminder-test" description="Build and send reminder using mocked SMTP">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'APPOINTMENT_REMINDER', contactEmail: 'patient@example.com', patientName: 'Test Patient', appointmentId: 'APT-EMAIL-02', localDateTime: '16 October 2026 10:00 AM', timeZone: 'Asia/Kolkata', practitionerName: 'Test Doctor', clinicName: 'Test Clinic'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailSubject contains 'Reminder']" is="#[MunitTools::equalTo(true)]" message="Reminder subject should be built"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Test Patient']" is="#[MunitTools::equalTo(true)]" message="Reminder body should include patient name"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- EMAIL SUB-FLOW: cancellation notice -->
+    <munit:test name="email-cancellation-test" description="Build and send cancellation notice using mocked SMTP">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'CANCELLATION_NOTICE', contactEmail: 'patient@example.com', patientName: 'Test Patient', appointmentId: 'APT-EMAIL-03', localDateTime: '16 October 2026 10:00 AM', timeZone: 'Asia/Kolkata', practitionerName: 'Test Doctor', clinicName: 'Test Clinic', cancelledByClinic: true, bookingUrl: 'Contact clinic'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailSubject contains 'Appointment cancelled']" is="#[MunitTools::equalTo(true)]" message="Cancellation subject should be built"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'has been cancelled']" is="#[MunitTools::equalTo(true)]" message="Cancellation body should include cancellation message"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Unsupported email type should raise the configured application error. -->
+    <munit:test name="email-invalid-type-test" description="Unsupported email type raises APP:INVALID_EMAIL_TYPE" expectedErrorType="APP:INVALID_EMAIL_TYPE">
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'UNKNOWN_TYPE', contactEmail: 'patient@example.com'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+    </munit:test>
+
+
+    <!-- Additional coverage: GET with no open slots -->
+    <munit:test name="get-slots-empty-result-test" description="GET slots handles an empty database result">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="9be40030-3605-44d3-a493-a490e523e9ef"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- []]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+                <munit:attributes value="#[{queryParams: {clinicId: 'CLN-BLR-01'}}]"/>
+            </munit:set-event>
+            <flow-ref name="get:\slots:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload != null]" is="#[MunitTools::equalTo(true)]" message="GET should return a valid empty result"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Additional coverage: successful cancellation path; database and JMS are mocked. -->
+    <munit:test name="delete-successful-cancellation-test" description="DELETE cancels an active appointment and publishes a notification">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="ec05ad19-3cfd-4470-a1a9-aeb92df5d995"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-MUNIT-CANCEL-OK', slot_id: 'SLT-MUNIT-01', status: 'BOOKED'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="jms:publish">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+                <munit:attributes value="#[{uriParams: {appointmentId: 'APT-MUNIT-CANCEL-OK'}}]"/>
+            </munit:set-event>
+            <flow-ref name="delete:\appointments\(appointmentId):api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(200)]" message="Successful cancellation should return HTTP 200"/>
+            <munit-tools:assert-that expression="#[payload.message]" is="#[MunitTools::equalTo('Appointment cancelled successfully')]" message="Cancellation response should be returned"/>
+            <munit-tools:verify-call processor="jms:publish" times="1"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Additional coverage: optional preparation notes and default values in confirmation template. -->
+    <munit:test name="email-confirmation-preparation-notes-test" description="Confirmation email includes preparation notes">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'BOOKING_CONFIRMATION', contactEmail: 'patient@example.com', patientName: 'Test Patient', appointmentId: 'APT-NOTES-01', preparationNotes: 'Bring previous reports'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Bring previous reports']" is="#[MunitTools::equalTo(true)]" message="Preparation notes should be included"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Patient']" is="#[MunitTools::equalTo(true)]" message="Missing optional fields should use template defaults"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Additional coverage: patient-initiated cancellation template branch. -->
+    <munit:test name="email-patient-cancellation-template-test" description="Cancellation email uses patient-initiated wording">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'CANCELLATION_NOTICE', contactEmail: 'patient@example.com', patientName: 'Test Patient', appointmentId: 'APT-CANCEL-PATIENT', cancelledByClinic: false, bookingUrl: 'https://example.com/book'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'You can book a new time at']" is="#[MunitTools::equalTo(true)]" message="Patient cancellation should use self-service rebooking wording"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'https://example.com/book']" is="#[MunitTools::equalTo(true)]" message="Booking URL should be included"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Additional coverage: reminder template defaults when optional data is absent. -->
+    <munit:test name="email-reminder-defaults-test" description="Reminder email fills default text for missing optional fields">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'APPOINTMENT_REMINDER', contactEmail: 'patient@example.com'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Dear Patient']" is="#[MunitTools::equalTo(true)]" message="Missing patient name should use Patient default"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Clinic not provided']" is="#[MunitTools::equalTo(true)]" message="Missing clinic should use default text"/>
+        </munit:validation>
+    </munit:test>
+
+
+    <!-- Additional coverage: successful appointment booking path. -->
+    <munit:test name="post-successful-booking-test" description="POST books an open future slot with mocked database and JMS">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="af19a4e0-db88-4270-9fc8-8c5ee1c54f71"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-MUNIT-SUCCESS', clinic_id: 'CLN-BLR-01', practitioner_id: 'DOC-01', start_utc: ((now() + |P2D|) as LocalDateTime), end_utc: (((now() + |P2D|) as LocalDateTime) + |PT30M|), status: 'OPEN', clinic_name: 'Test Clinic', time_zone: 'Asia/Kolkata', practitioner_name: 'Test Doctor'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1, generatedKey: 'APT-MUNIT-SUCCESS'}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="jms:publish">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{patientId: 'PAT-MUNIT-SUCCESS', clinicId: 'CLN-BLR-01', slotId: 'SLT-MUNIT-SUCCESS', reasonForVisit: 'MUnit successful booking'}]" mediaType="application/java"/>
+                <munit:attributes value="#[{headers: {'x-request-id': 'REQ-MUNIT-SUCCESS', 'x-correlation-id': 'COR-MUNIT-SUCCESS'}}]"/>
+            </munit:set-event>
+            <flow-ref name="post:\appointments:application\json:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload != null]" is="#[MunitTools::equalTo(true)]" message="Successful booking should return a response payload"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Additional coverage: GET with no query filters. -->
+    <munit:test name="get-slots-no-query-filters-test" description="GET slots works when optional query filters are omitted">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="9be40030-3605-44d3-a493-a490e523e9ef"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-MUNIT-NOFILTER', clinic_id: 'CLN-BLR-01', practitioner_id: 'DOC-01', start_utc: now() + |P3D|, end_utc: now() + |P3D| + |PT30M|, status: 'OPEN'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+                <munit:attributes value="#[{queryParams: {}}]"/>
+            </munit:set-event>
+            <flow-ref name="get:\slots:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload != null]" is="#[MunitTools::equalTo(true)]" message="GET should return a payload without optional filters"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Additional coverage: reminder email with complete appointment details. -->
+    <munit:test name="email-reminder-complete-details-test" description="Reminder template includes practitioner, clinic and appointment details">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'APPOINTMENT_REMINDER', contactEmail: 'patient@example.com', patientName: 'Reminder Patient', appointmentId: 'APT-REM-COMPLETE', localDateTime: '17 October 2026 11:30 AM', timeZone: 'Asia/Kolkata', practitionerName: 'Dr Example', specialtyLabel: 'Cardiology', clinicName: 'City Clinic', clinicAddressLine1: '10 Main Road', clinicCity: 'Bengaluru'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Dr Example']" is="#[MunitTools::equalTo(true)]" message="Reminder should include practitioner name"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'City Clinic']" is="#[MunitTools::equalTo(true)]" message="Reminder should include clinic name"/>
+        </munit:validation>
+    </munit:test>
+
+
+    <!-- Additional coverage: clinic-initiated cancellation branch. -->
+    <munit:test name="email-clinic-initiated-cancellation-test" description="Clinic cancellation includes rebooking guidance">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'CANCELLATION_NOTICE', contactEmail: 'patient@example.com', patientName: 'Clinic Cancellation Patient', appointmentId: 'APT-CLINIC-CANCEL', startLocalLong: '18 October 2026 10:00 AM', practitionerName: 'Dr Example', clinicName: 'City Clinic', cancelledByClinic: true, bookingUrl: 'https://example.com/book', clinicPhone: '0800000000'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'We are sorry for the inconvenience']" is="#[MunitTools::equalTo(true)]" message="Clinic cancellation should include apology"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'https://example.com/book']" is="#[MunitTools::equalTo(true)]" message="Clinic cancellation should include booking URL"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains '0800000000']" is="#[MunitTools::equalTo(true)]" message="Clinic cancellation should include clinic phone"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Additional coverage: booking confirmation default values. -->
+    <munit:test name="email-booking-confirmation-defaults-test" description="Booking confirmation uses fallback values when optional fields are missing">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'BOOKING_CONFIRMATION', contactEmail: 'patient@example.com'}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Dear Patient']" is="#[MunitTools::equalTo(true)]" message="Missing patient name should use Patient fallback"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Not provided']" is="#[MunitTools::equalTo(true)]" message="Missing appointment fields should use fallback text"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Please contact your clinic to cancel or reschedule.']" is="#[MunitTools::equalTo(true)]" message="Missing manage URL should use fallback text"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Additional coverage: cancellation defaults and patient-initiated path. -->
+    <munit:test name="email-patient-cancellation-defaults-test" description="Patient cancellation uses fallback booking guidance">
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{emailType: 'CANCELLATION_NOTICE', contactEmail: 'patient@example.com', cancelledByClinic: false}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="send-appointment-email"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'Your appointment on the scheduled date']" is="#[MunitTools::equalTo(true)]" message="Missing appointment date should use fallback text"/>
+            <munit-tools:assert-that expression="#[vars.emailBody contains 'You can book a new time at']" is="#[MunitTools::equalTo(true)]" message="Patient cancellation should use patient booking guidance"/>
+        </munit:validation>
+    </munit:test>
+
+
+    <!-- Consumer tests: invoke extracted subflows so the JMS listener need not start. -->
+    <munit:test name="notification-booking-confirmation-consumer-test" description="Processes a booked appointment notification">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-NOTIFY-01', start_utc: '2026-10-20 10:00:00', status: 'BOOKED', patient_name: 'Test Patient', contact_email: 'patient@example.com', practitioner_name: 'Dr Test', specialty: 'General', clinic_name: 'Test Clinic', address_line1: '1 Main Road', city: 'Bengaluru', time_zone: 'Asia/Kolkata'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({eventType: 'APPOINTMENT_BOOKED', appointmentId: 'APT-NOTIFY-01'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-notification-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.bookingDetails.appointment_id]" is="#[MunitTools::equalTo('APT-NOTIFY-01')]" message="Booking details should be saved"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="notification-booking-skipped-empty-result-test" description="Skips confirmation when appointment lookup is empty">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Notification Details"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- []]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({eventType: 'APPOINTMENT_BOOKED', appointmentId: 'APT-MISSING'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-notification-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[isEmpty(payload)]" is="#[MunitTools::equalTo(true)]" message="Empty lookup should be handled without sending confirmation"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="notification-unsupported-event-test" description="Logs unsupported notification event without sending email">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Notification Details"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- []]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({eventType: 'SOMETHING_UNKNOWN', appointmentId: 'APT-UNKNOWN'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-notification-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.bookingEvent.eventType]" is="#[MunitTools::equalTo('SOMETHING_UNKNOWN')]" message="Unsupported event should be parsed"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="notification-cancellation-skipped-not-cancelled-test" description="Skips cancellation email when appointment status is not CANCELLED">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-NOT-CANCELLED', status: 'BOOKED'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({eventType: 'APPOINTMENT_CANCELLED', appointmentId: 'APT-NOT-CANCELLED'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-notification-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload[0].status]" is="#[MunitTools::equalTo('BOOKED')]" message="Non-cancelled appointment should be skipped"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="notification-cancellation-success-test" description="Processes a cancelled appointment notification">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-CANCEL-01', start_utc: '2026-10-20 10:00:00', status: 'CANCELLED', patient_name: 'Test Patient', contact_email: 'patient@example.com', practitioner_name: 'Dr Test', specialty: 'General', clinic_name: 'Test Clinic', address_line1: '1 Main Road', city: 'Bengaluru', time_zone: 'Asia/Kolkata'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({notifyType: 'CANCELLATION', appointmentId: 'APT-CANCEL-01'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-notification-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.bookingDetails.appointment_id]" is="#[MunitTools::equalTo('APT-CANCEL-01')]" message="Cancellation details should be saved"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="reminder-skipped-already-sent-test" description="Skips reminder when reminder_state is SENT">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-REM-SENT', status: 'BOOKED', reminder_state: 'SENT'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({appointmentId: 'APT-REM-SENT'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-appointment-reminder-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload[0].reminder_state]" is="#[MunitTools::equalTo('SENT')]" message="Already-sent reminder should be skipped"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="reminder-skipped-empty-lookup-test" description="Skips reminder when appointment lookup is empty">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Fetch Reminder Details"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- []]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({appointmentId: 'APT-REM-MISSING'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-appointment-reminder-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[isEmpty(payload)]" is="#[MunitTools::equalTo(true)]" message="Empty reminder lookup should be skipped"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="reminder-success-mark-sent-test" description="Sends reminder and marks appointment reminder state SENT">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-REM-OK', start_utc: '2026-10-20 10:00:00', status: 'BOOKED', reminder_state: 'SCHEDULED', patient_name: 'Test Patient', contact_email: 'patient@example.com', practitioner_name: 'Dr Test', specialty: 'General', clinic_name: 'Test Clinic', address_line1: '1 Main Road', city: 'Bengaluru', time_zone: 'Asia/Kolkata'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({appointmentId: 'APT-REM-OK'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-appointment-reminder-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.reminderDetails.appointment_id]" is="#[MunitTools::equalTo('APT-REM-OK')]" message="Reminder details should be saved"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="scheduler-publishes-due-reminders-test" description="Publishes one JMS event per due reminder">
+        <munit:behavior>
+            <munit-tools:mock-when processor="jms:publish">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[[{appointment_id: 'APT-DUE-01'}, {appointment_id: 'APT-DUE-02'}]]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="publish-due-appointment-reminders"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[sizeOf(payload) == 2]" is="#[MunitTools::equalTo(true)]" message="Both due reminders should be processed"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="scheduler-no-due-reminders-test" description="Handles an empty due-reminder list">
+        <munit:behavior>
+            <munit-tools:mock-when processor="jms:publish">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[[]]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="publish-due-appointment-reminders"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[isEmpty(payload)]" is="#[MunitTools::equalTo(true)]" message="No due reminders should produce no publish events"/>
+        </munit:validation>
+    </munit:test>
+
+
+    <munit:test name="notification-confirmation-alias-test" description="Routes CONFIRMATION notifyType to booking confirmation">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-ALIAS-01', start_utc: '2026-10-20 10:00:00', status: 'BOOKED', patient_name: 'Test Patient', contact_email: 'patient@example.com', practitioner_name: 'Dr Test', specialty: 'General', clinic_name: 'Test Clinic', address_line1: '1 Main Road', city: 'Bengaluru', time_zone: 'Asia/Kolkata'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return><munit-tools:payload value="#[payload]" mediaType="application/java"/></munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({notifyType: 'CONFIRMATION', appointmentId: 'APT-ALIAS-01'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-notification-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.bookingDetails.appointment_id]" is="#[MunitTools::equalTo('APT-ALIAS-01')]" message="CONFIRMATION alias should save booking details"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="notification-cancelled-event-alias-test" description="Routes APPOINTMENT_CANCELLED eventType to cancellation notice">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-CANCEL-ALIAS', start_utc: '2026-10-20 10:00:00', status: 'CANCELLED', patient_name: 'Test Patient', contact_email: 'patient@example.com', practitioner_name: 'Dr Test', specialty: 'General', clinic_name: 'Test Clinic', address_line1: '1 Main Road', city: 'Bengaluru', time_zone: 'Asia/Kolkata'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return><munit-tools:payload value="#[payload]" mediaType="application/java"/></munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({eventType: 'APPOINTMENT_CANCELLED', appointmentId: 'APT-CANCEL-ALIAS'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-notification-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.bookingDetails.appointment_id]" is="#[MunitTools::equalTo('APT-CANCEL-ALIAS')]" message="Cancellation event alias should save cancellation details"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="reminder-skipped-not-booked-test" description="Skips reminder for an appointment that is not BOOKED">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-REM-CANCELLED', status: 'CANCELLED', reminder_state: 'SCHEDULED'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return><munit-tools:payload value="#[payload]" mediaType="application/java"/></munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update">
+                <munit-tools:then-return><munit-tools:payload value="#[payload]" mediaType="application/java"/></munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({appointmentId: 'APT-REM-CANCELLED'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-appointment-reminder-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.reminderDetails == null]" is="#[MunitTools::equalTo(true)]" message="Reminder details should not be set for a cancelled appointment"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="reminder-null-state-success-test" description="Sends reminder when reminder_state is null">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-REM-NULL', start_utc: '2026-10-20 10:00:00', status: 'BOOKED', reminder_state: null, patient_name: 'Test Patient', contact_email: 'patient@example.com', practitioner_name: 'Dr Test', specialty: 'General', clinic_name: 'Test Clinic', address_line1: '1 Main Road', city: 'Bengaluru', time_zone: 'Asia/Kolkata'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return><munit-tools:payload value="#[payload]" mediaType="application/java"/></munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update">
+                <munit-tools:then-return><munit-tools:payload value="#[payload]" mediaType="application/java"/></munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[write({appointmentId: 'APT-REM-NULL'}, 'application/json')]" mediaType="application/json"/>
+            </munit:set-event>
+            <flow-ref name="process-appointment-reminder-event"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.reminderDetails.appointment_id]" is="#[MunitTools::equalTo('APT-REM-NULL')]" message="Null reminder state should still permit a valid reminder"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="scheduler-single-due-reminder-test" description="Publishes a reminder event for one due appointment">
+        <munit:behavior>
+            <munit-tools:mock-when processor="jms:publish">
+                <munit-tools:then-return><munit-tools:payload value="#[payload]" mediaType="application/java"/></munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[[{appointment_id: 'APT-DUE-SINGLE'}]]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="publish-due-appointment-reminders"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[sizeOf(payload) == 1]" is="#[MunitTools::equalTo(true)]" message="One due reminder should be processed"/>
+        </munit:validation>
+    </munit:test>
+
+<munit:test name="post-successful-booking-default-headers-test" description="Books an open future slot when request and correlation headers are omitted">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="af19a4e0-db88-4270-9fc8-8c5ee1c54f71"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-MUNIT-DEFAULT', clinic_id: 'CLN-BLR-01', practitioner_id: 'DOC-01', start_utc: ((now() + |P3D|) as LocalDateTime), end_utc: (((now() + |P3D|) as LocalDateTime) + |PT30M|), status: 'OPEN', clinic_name: 'Test Clinic', time_zone: 'Asia/Kolkata', practitioner_name: 'Test Doctor'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1, generatedKey: 'APT-MUNIT-SUCCESS'}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="jms:publish">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{patientId: 'PAT-MUNIT-DEFAULT', clinicId: 'CLN-BLR-01', slotId: 'SLT-MUNIT-DEFAULT', reasonForVisit: 'Default header booking'}]" mediaType="application/java"/>
+                </munit:set-event>
+            <flow-ref name="post:\appointments:application\json:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload != null]" is="#[MunitTools::equalTo(true)]" message="Successful booking should return a response payload"/>
+        </munit:validation>
+    </munit:test><munit:test name="post-successful-booking-correlation-only-test" description="Uses correlation ID as the request ID fallback">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="af19a4e0-db88-4270-9fc8-8c5ee1c54f71"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-MUNIT-CORR', clinic_id: 'CLN-BLR-01', practitioner_id: 'DOC-01', start_utc: ((now() + |P3D|) as LocalDateTime), end_utc: (((now() + |P3D|) as LocalDateTime) + |PT30M|), status: 'OPEN', clinic_name: 'Test Clinic', time_zone: 'Asia/Kolkata', practitioner_name: 'Test Doctor'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1, generatedKey: 'APT-MUNIT-SUCCESS'}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="jms:publish">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{patientId: 'PAT-MUNIT-CORR', clinicId: 'CLN-BLR-01', slotId: 'SLT-MUNIT-CORR', reasonForVisit: 'Correlation fallback booking'}]" mediaType="application/java"/>
+                <munit:attributes value="#[{headers: {'x-correlation-id': 'COR-MUNIT-ONLY'}}]"/>
+            </munit:set-event>
+            <flow-ref name="post:\appointments:application\json:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload != null]" is="#[MunitTools::equalTo(true)]" message="Successful booking should return a response payload"/>
+        </munit:validation>
+    </munit:test><munit:test name="get-slots-filtered-query-test" description="GET slots passes clinic and date query filters to database">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="9be40030-3605-44d3-a493-a490e523e9ef"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-MUNIT-NOFILTER', clinic_id: 'CLN-BLR-01', practitioner_id: 'DOC-01', start_utc: now() + |P3D|, end_utc: now() + |P3D| + |PT30M|, status: 'OPEN'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+                <munit:attributes value="#[{queryParams: {clinicId: 'CLN-BLR-01', date: '2026-10-18'}}]"/>
+            </munit:set-event>
+            <flow-ref name="get:\slots:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload != null]" is="#[MunitTools::equalTo(true)]" message="GET should return a payload without optional filters"/>
+        </munit:validation>
+    </munit:test><munit:test name="delete-successful-cancellation-pending-status-test" description="Cancels an appointment whose status is not already CANCELLED">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="ec05ad19-3cfd-4470-a1a9-aeb92df5d995"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{appointment_id: 'APT-MUNIT-PENDING', slot_id: 'SLT-MUNIT-PENDING', status: 'PENDING'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="jms:publish">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+                <munit:attributes value="#[{uriParams: {appointmentId: 'APT-MUNIT-PENDING'}}]"/>
+            </munit:set-event>
+            <flow-ref name="delete:\appointments\(appointmentId):api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(200)]" message="Successful cancellation should return HTTP 200"/>
+            <munit-tools:assert-that expression="#[payload.message]" is="#[MunitTools::equalTo('Appointment cancelled successfully')]" message="Cancellation response should be returned"/>
+            <munit-tools:verify-call processor="jms:publish" times="1"/>
+        </munit:validation>
+    </munit:test><munit:test name="post-successful-booking-request-id-only-test" description="Generates a correlation ID when only request ID is supplied">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="af19a4e0-db88-4270-9fc8-8c5ee1c54f71"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-MUNIT-REQONLY', clinic_id: 'CLN-BLR-01', practitioner_id: 'DOC-01', start_utc: ((now() + |P3D|) as LocalDateTime), end_utc: (((now() + |P3D|) as LocalDateTime) + |PT30M|), status: 'OPEN', clinic_name: 'Test Clinic', time_zone: 'Asia/Kolkata', practitioner_name: 'Test Doctor'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:insert">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1, generatedKey: 'APT-MUNIT-SUCCESS'}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="db:update">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{affectedRows: 1}]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="jms:publish">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{patientId: 'PAT-MUNIT-REQONLY', clinicId: 'CLN-BLR-01', slotId: 'SLT-MUNIT-REQONLY', reasonForVisit: 'Request-only booking'}]" mediaType="application/java"/>
+                <munit:attributes value="#[{headers: {'x-request-id': 'REQ-MUNIT-ONLY'}}]"/>
+            </munit:set-event>
+            <flow-ref name="post:\appointments:application\json:api-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload != null]" is="#[MunitTools::equalTo(true)]" message="Successful booking should return a response payload"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Tests for the previously uncovered healthcare-appointments-api.xml flow -->
+    <munit:test name="healthcare-appointments-api-flow-returns-slots-test" description="The standalone healthcare API flow returns mocked slot rows">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="d88338af-e141-45a3-b484-5c3e747a7921"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- [{slot_id: 'SLT-STANDALONE-01', status: 'OPEN'}, {slot_id: 'SLT-STANDALONE-02', status: 'OPEN'}]]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="healthcare-appointments-apiFlow"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[sizeOf(payload)]" is="#[MunitTools::equalTo(2)]" message="The standalone flow should return both mocked slots"/>
+            <munit-tools:assert-that expression="#[payload[0].slot_id]" is="#[MunitTools::equalTo('SLT-STANDALONE-01')]" message="The first slot should be returned"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="healthcare-appointments-api-flow-empty-slots-test" description="The standalone healthcare API flow handles an empty slots result">
+        <munit:behavior>
+            <munit-tools:mock-when processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:id" whereValue="d88338af-e141-45a3-b484-5c3e747a7921"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[output application/java --- []]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value="#[{}]" mediaType="application/java"/>
+            </munit:set-event>
+            <flow-ref name="healthcare-appointments-apiFlow"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[isEmpty(payload)]" is="#[MunitTools::equalTo(true)]" message="The standalone flow should return an empty list when no slots exist"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Start api-main source and send a request through the real HTTP listener. -->
+    <munit:test name="api-main-http-not-found-source-test" description="Covers the API listener, APIKit router and NOT_FOUND handler">
+        <munit:enable-flow-sources>
+            <munit:enable-flow-source value="api-main"/>
+        </munit:enable-flow-sources>
+        <munit:execution>
+            <http:request config-ref="MUnit_API_HTTP_Request" method="GET" path="/api/no-such-resource"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[attributes.statusCode]" is="#[MunitTools::equalTo(404)]" message="Unknown API resources should return HTTP 404"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Start APIKit console source in its own test to avoid listener lifecycle conflicts. -->
+    <munit:test name="api-console-http-source-test" description="Covers the APIKit console HTTP listener and console processor">
+        <munit:enable-flow-sources>
+            <munit:enable-flow-source value="api-console"/>
+        </munit:enable-flow-sources>
+        <munit:execution>
+            <http:request config-ref="MUnit_API_HTTP_Request" method="GET" path="/console/"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[attributes.statusCode]" is="#[MunitTools::equalTo(200)]" message="APIKit console should return HTTP 200"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Exercise the test-email HTTP source; SMTP is mocked so no real email is sent. -->
+    <munit:test name="test-appointment-email-http-source-test" description="Covers the test email listener flow without sending real email">
+        <munit:enable-flow-sources>
+            <munit:enable-flow-source value="test-appointment-email-flow"/>
+        </munit:enable-flow-sources>
+        <munit:behavior>
+            <munit-tools:mock-when processor="email:send">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/java"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <http:request config-ref="MUnit_Email_HTTP_Request" method="POST" path="/test-email" sendBodyMode="ALWAYS">
+                <http:body>#[{}]</http:body>
+                <http:headers>#[{'Content-Type': 'application/json'}]</http:headers>
+            </http:request>
+        </munit:execution>
+<munit:validation>
+    <munit-tools:assert-that expression="#[attributes.statusCode]" is="#[MunitTools::equalTo(200)]" message="The test email endpoint should return HTTP 200"/>
+</munit:validation>
+    </munit:test>
+
+<munit:test name="api-console-not-found-source-test" description="Covers the APIKit console NOT_FOUND error handler"><munit:enable-flow-sources><munit:enable-flow-source value="api-console"/></munit:enable-flow-sources><munit:execution><http:request config-ref="MUnit_API_HTTP_Request" method="GET" path="/console/no-such-page"/></munit:execution><munit:validation><munit-tools:assert-that expression="#[attributes.statusCode]" is="#[MunitTools::equalTo(404)]" message="Unknown console paths should return HTTP 404"/></munit:validation></munit:test></mule>
