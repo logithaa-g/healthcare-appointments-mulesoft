@@ -1,5 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
-	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd"></mule>
+<mule xmlns:jms="http://www.mulesoft.org/schema/mule/jms"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd">
+
+    <jms:config name="JMS_Config" doc:name="JMS Config">
+        <jms:generic-connection specification="JMS_2_0">
+            <jms:connection-factory>
+                <jms:jndi-connection-factory
+                    connectionFactoryJndiName="ConnectionFactory">
+                    <jms:name-resolver-builder
+                        jndiInitialContextFactory="org.apache.activemq.jndi.ActiveMQInitialContextFactory"
+                        jndiProviderUrl="tcp://localhost:61616"/>
+                </jms:jndi-connection-factory>
+            </jms:connection-factory>
+        </jms:generic-connection>
+    </jms:config>
+
+    <flow name="notification-consumersFlow">
+        <jms:listener
+            doc:name="On New Message"
+            config-ref="JMS_Config"
+            destination="appointment.notify.queue"
+            ackMode="AUTO"
+            inboundContentType="application/json"
+            inboundEncoding="UTF-8"/>
+
+        <logger
+            level="INFO"
+            doc:name="Logger"
+            message="Received notification message from appointment.notify.queue"/>
+    </flow>
+
+</mule>

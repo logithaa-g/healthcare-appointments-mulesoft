@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:email="http://www.mulesoft.org/schema/mule/email"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd">
+
+    <configuration-properties
+        doc:name="Configuration properties"
+        file="config.properties"/>
+
+    <email:smtp-config name="Email_SMTP" doc:name="Email SMTP">
+        <email:smtp-connection
+            host="${smtp.host}"
+            port="${smtp.port}"
+            user="${smtp.username}"
+            password="${smtp.password}"/>
+    </email:smtp-config>
+
+    <!-- Patient email templates -->
+    <sub-flow name="send-appointment-email">
+
+        <choice doc:name="Select patient email template">
+
+            <!-- BOOKING CONFIRMATION -->
+            <when expression="#[payload.emailType == 'BOOKING_CONFIRMATION']">
+                <set-variable variableName="emailSubject"
+                    value='#["Appointment confirmed - " ++ ((payload.startLocalShort default payload.localDateTime) default (payload.appointmentReference default "Appointment"))]'/>
+				<set-variable variableName="emailBody" value="#['Dear ' ++ (payload.patientName default 'Patient') ++ ',' ++&#10;                    '\n\nYour appointment is confirmed.' ++&#10;                    '\n\nReference     : ' ++ (payload.appointmentId default payload.appointmentReference default 'Not provided') ++&#10;                    '\nDate and time : ' ++ (payload.startLocalLong default payload.localDateTime default 'Not provided') ++&#10;                    ' (' ++ (payload.timeZoneLabel default payload.timeZone default 'Not provided') ++ ')' ++&#10;                    '\nPractitioner  : ' ++ (payload.practitionerName default payload.practitioner default 'Not provided') ++&#10;                    ', ' ++ (payload.specialtyLabel default payload.specialty default 'Not provided') ++&#10;                    '\nClinic        : ' ++ (payload.clinicName default 'Not provided') ++&#10;                    '\n                ' ++ (payload.clinicAddressLine1 default payload.clinicAddress default 'Address not provided') ++&#10;                    ', ' ++ (payload.clinicCity default '') ++&#10;                    '\n\nPlease arrive 10 minutes early and bring:' ++&#10;                    '\n1. A photo identity document' ++&#10;                    '\n2. Your insurance or scheme card, if applicable' ++&#10;                    '\n3. Any current medication or recent reports' ++&#10;                    (if (!isEmpty(payload.preparationNotes default ''))&#10;                        '\n\nBefore your visit\n' ++ payload.preparationNotes&#10;                     else&#10;                        '') ++&#10;                    '\n\nNeed to change it? Cancel or reschedule at:' ++&#10;                    '\n' ++ (payload.manageUrl default 'Please contact your clinic to cancel or reschedule.') ++&#10;                    '\nPlease give at least ' ++ (payload.cancellationNoticeHours default 'the required') ++ ' hours notice.' ++&#10;                    '\n\nWe will send a reminder ' ++ (payload.reminderOffsetHours default 'the configured') ++ ' hours before.' ++&#10;                    '\n\nNPN Clinics\n' ++ (payload.clinicPhone default '')]" />
+            
+</when>
+
+            <!-- APPOINTMENT REMINDER: NO REASON FOR VISIT -->
+            <when expression="#[payload.emailType == 'APPOINTMENT_REMINDER']">
+                <set-variable variableName="emailSubject"
+                    value="#['Reminder - appointment tomorrow ' ++ (payload.startTimeLocal default payload.localDateTime default '')]"/>
+
+                <set-variable variableName="emailBody"
+                    value="#['Dear ' ++ (payload.patientName default 'Patient') ++ ',' ++&#10;                    '\n\nThis is a reminder of your appointment tomorrow.' ++&#10;                    '\n\n' ++ (payload.startLocalLong default payload.localDateTime default 'Time not provided') ++&#10;                    ' (' ++ (payload.timeZoneLabel default payload.timeZone default 'Not provided') ++ ')' ++&#10;                    '\n' ++ (payload.practitionerName default payload.practitioner default 'Practitioner not provided') ++&#10;                    ' at ' ++ (payload.clinicName default 'Clinic not provided') ++&#10;                    '\n' ++ (payload.clinicAddressLine1 default payload.clinicAddress default 'Address not provided') ++&#10;                    ', ' ++ (payload.clinicCity default '') ++&#10;                    '\nReference ' ++ (payload.appointmentId default payload.appointmentReference default 'Not provided') ++&#10;                    '\n\nPlease arrive 10 minutes early. If you can no longer attend,' ++&#10;                    '\ncancel at ' ++ (payload.manageUrl default 'Please contact your clinic to cancel or reschedule.') ++&#10;                    ' so that we can offer the slot to someone else.' ++&#10;                    '\n\nNPN Clinics\n' ++ (payload.clinicPhone default '')]"/>
+            </when>
+
+            <!-- CANCELLATION NOTICE -->
+            <when expression="#[payload.emailType == 'CANCELLATION_NOTICE']">
+                <set-variable variableName="emailSubject"
+                    value="#['Appointment cancelled - ' ++ (payload.appointmentId default payload.appointmentReference default 'Appointment')]"/>
+
+                <set-variable variableName="emailBody"
+                    value="#['Dear ' ++ (payload.patientName default 'Patient') ++ ',' ++&#10;                    '\n\nYour appointment on ' ++&#10;                    (payload.startLocalLong default payload.localDateTime default 'the scheduled date') ++&#10;                    ' with ' ++ (payload.practitionerName default payload.practitioner default 'your practitioner') ++&#10;                    ' at ' ++ (payload.clinicName default 'your clinic') ++&#10;                    ' has been cancelled.' ++&#10;                    '\n\nThe appointment slot has been released.' ++&#10;                    (if (payload.cancelledByClinic default false)&#10;                        '\n\nWe are sorry for the inconvenience. Please rebook at ' ++&#10;                        (payload.bookingUrl default 'Please contact your clinic to arrange another appointment.') ++&#10;                        ' or call ' ++ (payload.clinicPhone default 'your clinic') ++&#10;                        ' and we will find you another time.'&#10;                     else&#10;                        '\n\nYou can book a new time at ' ++&#10;                        (payload.bookingUrl default 'Please contact your clinic to arrange another appointment.') ++&#10;                        '.') ++&#10;                    '\n\nNPN Clinics']"/>
+            </when>
+
+            <otherwise>
+                <raise-error
+                    type="APP:INVALID_EMAIL_TYPE"
+                    description="Unsupported appointment email type."/>
+            </otherwise>
+
+        </choice>
+
+        <email:send
+            config-ref="Email_SMTP"
+            doc:name="Send patient appointment email"
+            subject="#[vars.emailSubject]">
+
+            <email:to-addresses>
+                <email:to-address
+                    value="#[payload.contactEmail default payload.recipientEmail]"/>
+            </email:to-addresses>
+
+            <email:body contentType="text/plain">
+                <email:content>#[vars.emailBody]</email:content>
+            </email:body>
+
+        </email:send>
+
+    </sub-flow>
+
+    <!-- Temporary endpoint for testing Mailtrap email delivery -->
+    <http:listener-config
+        name="Email_Test_HTTP_Config"
+        doc:name="Email Test HTTP Config">
+        <http:listener-connection host="localhost" port="8082"/>
+    </http:listener-config>
+
+    <flow name="test-appointment-email-flow">
+
+        <http:listener
+            config-ref="Email_Test_HTTP_Config"
+            path="/test-email"
+            allowedMethods="POST"
+            doc:name="Trigger Test Email"/>
+
+        
+<set-payload doc:name="Build Test Email Payload"
+    value="#[{
+        emailType: (attributes.queryParams.emailType default 'BOOKING_CONFIRMATION'),
+        recipientEmail: 'to@example.com',
+        contactEmail: 'to@example.com',
+        patientName: 'Test Patient',
+        appointmentId: 'TEST-001',
+        appointmentReference: 'TEST-001',
+        startLocalShort: '14 Oct 2026, 10:00 AM',
+        startLocalLong: '14 October 2026, 10:00 AM',
+        startTimeLocal: '10:00 AM',
+        localDateTime: '14 October 2026, 10:00 AM',
+        timeZone: 'Asia/Kolkata (IST)',
+        timeZoneLabel: 'Asia/Kolkata (IST)',
+        practitionerName: 'Dr Test Practitioner',
+        practitioner: 'Dr Test Practitioner',
+        specialtyLabel: 'General Medicine',
+        specialty: 'General Medicine',
+        clinicName: 'NPN Test Clinic',
+        clinicAddressLine1: 'Test Address',
+        clinicAddress: 'Test Address, Mysuru',
+        clinicCity: 'Mysuru',
+        preparationNotes: 'Bring your photo ID.',
+        manageUrl: 'Contact the test clinic',
+        bookingUrl: 'Contact the test clinic to rebook',
+        cancelledByClinic: false,
+        cancellationNoticeHours: 24,
+        reminderOffsetHours: 24,
+        clinicPhone: '0000000000'
+    }]"/>
+
+        <flow-ref
+            name="send-appointment-email"
+            doc:name="Send Test Appointment Email"/>
+
+        <set-payload
+            value="Test email submitted successfully"
+            doc:name="Test Result"/>
+
+    </flow>
+
+</mule>
